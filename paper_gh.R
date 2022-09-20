@@ -11,42 +11,30 @@ library(lubridate)
 options(OutDec = '.')
 
 
+# Data loading section and preproces
+
 datos.dc <- read_excel("datos_nver_2018.xlsx", sheet = "datos_dc")
 datos.nces <- read_excel("datos_nver_2018.xlsx", sheet = "datos_nces")
 datos.cap <- read_excel("datos_nver_2018.xlsx", sheet = "datos_cap")
 
 datos.todos <- cbind(datos.dc, datos.nces[, -1])
 
-aux1 <- diff(datos.todos$volutil)
-aux2 <- diff(datos.todos$volutil_ener)
-aux3 <- diff(datos.todos$genide_hidro)
-aux4 <- diff(datos.todos$genide_sol)
-aux5 <- diff(datos.todos$gen_frnc)
-datos.todos <- datos.todos[-1, ]
-datos.todos["diff_vol"] <- aux1
-datos.todos["diff_vol_ener"] <- aux2
-datos.todos["diff_genide_hidro"] <- aux3
-datos.todos["diff_genide_sol"] <- aux4
-datos.todos["diff_genide_frnc"] <- aux5
+
 
 datos.ts <- as.ts(xts::xts(order.by = as.Date(datos.todos$fecha, "%Y-%m-%d"), 
                            x = datos.todos[,-c(1,10, 11, 17)]))
 head(datos.ts)
 
 
-adf.test(datos.ts[,13], k = 4)
 
-lista <- c(13, 3, 2, 5)
-datos.ts[, lista[c(1, 2)]] <- datos.ts[, lista[c(1, 2)]]/1e6
-rezagos <- 21
-var <- VARselect(datos.ts[, lista], lag.max = rezagos, type = "trend")
-var
-var <- VARselect(datos.ts[, lista], lag.max = rezagos, type = "both")
-var
-var <- VARselect(datos.ts[, lista], lag.max = rezagos, type = "const")
-var
-var <- VARselect(datos.ts[, lista], lag.max = rezagos, type = "none")
-var
+# Testing for unit root, change 13 with the desired variable
+# 13 > ncres generation
+# 3  > large hydro availability
+# 2  > weighted average hydro price
+# 5  > weighted average spot price
+# k  > lags to test ADF
+adf.test(datos.ts[,13], k = 360)
+
 
 
 rezagos_elegidos <- 21
@@ -59,23 +47,29 @@ ser_test
 ser_test <- serial.test(var, lags.pt = 40, type ="BG")
 ser_test
 
+# VEC model estimation
 lista <- c(13, 3, 2, 5)
 rm(co_obj)
 co_obj <- ca.jo(datos.ts[, lista], K = rezagos_elegidos, ecdet = "none",
                 spec='transitory')
 summary(co_obj)
 
+
+# Estimating cointegration equations
 co_obj_eq <- cajorls(co_obj, r=3)
 summary(co_obj_eq$rlm)
 (co_obj_eq$beta)
 
 
+# Transforming the VEC model for manipulation.
 vec_var <- vec2var(co_obj, r=3)
 
 resid_df <- data.frame(resid(vec_var))
 pred_df <- data.frame(fitted(vec_var))
 
 
+
+# autocorrelation of residuals
 autoplot(acf(resid_df$resids.of.gen_frnc, plot = FALSE), 
          conf.int.fill = '#0000FF', 
          conf.int.value = 0.8, conf.int.type = 'ma') + 
@@ -104,6 +98,8 @@ autoplot(acf(resid_df$resids.of.pbolsa, plot = FALSE),
 days <- seq(as.Date("2018/1/23"), as.Date("2022/7/31"), "days")
 resid_df['days'] <- days
 
+
+# Residuals plots
 p <- ggplot(resid_df, aes(x=days, y=resids.of.gen_frnc)) +
   geom_line() + 
   ggtitle("Residuals - NCES Generation") + 
@@ -133,6 +129,8 @@ p <- ggplot(resid_df, aes(x=days, y=resids.of.pbolsa)) +
 p
 
 
+
+# Prediction vs real for spot price
 real <- datos.ts[22:1672,5]
 pred <- fitted(vec_var)[,4]
 
@@ -155,9 +153,14 @@ pgg <- ggplot(pbolsa_df, aes(x=days)) +
   ggtitle("Spot Price and Forecast - (COP/kWh)")
 pgg
 
+
+# calculating volatility of real spot prices
 vol_real <- sd(log(real[2:1651])-log(pred[1:1650]))
+# calculating volatility of predicted spot prices
 vol_pred <- sd(log(pred[2:1651])-log(pred[1:1650]))
 
+
+# impulse-response functions and plotting
 aux <- irf(vec_var, impulse="gen_frnc", response = "pbolsa", 
            runs=200, n.ahead = 365)
 
@@ -202,13 +205,14 @@ p1<-p1+theme(axis.text=element_text(size=12),axis.title=element_text(size=14,fac
 p1
 
 
+
+
+# Shock ncres generation and new volatility
 i <- 365
 vol_pred_360 <- sd(log(pred[(1651-i+1):1651])
                    -log(pred[(1651-i):1650]))
 
-
 pred_shock <- pred[(1651-365):1651] + aux$irf$gen_frnc
-
 
 vol_pred_shock <- sd(log(pred_shock[2:366]) - log(pred_shock[1:365]))
 
@@ -218,7 +222,7 @@ vol_real_360 <- sd(log(real[(1651-i+1):1651])
 
 
 
-# Scenario evaluation
+# Scenario evaluation with 2019 Expansion plan
 fulfillment <- 1
 
 new_pv <- 5888 * fulfillment
@@ -228,6 +232,8 @@ new_small_hydro <- 475 * fulfillment
 
 
 
+
+# all the code onwards can be greatly improved for readability
 
 i <- 360
 
@@ -282,7 +288,7 @@ vec2$datamat <- mat
  
 vec2$obs <- nrow(mat)
 vec2$totobs <- vec2$obs + vec2$p
-prediction <- predict(vec2, n.ahead = 31)
+prediction <- predict(vec2, n.ahead = 360)
 
 preds <- prediction$fcst$pbolsa[,3]
 vol1 <- sd(log(abs(preds[2:31]/preds[1:30])))

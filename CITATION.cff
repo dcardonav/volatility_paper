@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: Cardona-Vasquez
+    given-names: David
+    orcid: https://orcid.org/0000-0002-3924-2096
+title: "Effect of the intermittency of non-conventional renewable energy sources on the volatility of the Colombian spot price"
+version: 0.1.0
+doi: 10.2139/ssrn.4073463 
+date-released:
